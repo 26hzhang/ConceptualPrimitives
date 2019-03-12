@@ -48,4 +48,4 @@ http://wacky.sslmit.unibo.it/lib/exe/fetch.php?media=papers:wacky_2008.pdf).
 the Web limiting the crawl to the .uk domain and using medium-frequency words from the [BNC](http://www.natcorp.ox.ac.uk/) as seeds. 
 The corpus was POS-tagged and lemmatized with the [TreeTagger](http://www.ims.uni-stuttgart.de/projekte/corplex/TreeTagger/).
 - [ukWaC TagSet](http://wacky.sslmit.unibo.it/lib/exe/fetch.php?media=tagsets:ukwac_tagset.txt): explanation of POS tag meaning used in UKWAC dataset.
-- [jungokasai/skipgram](https://github.com/jungokasai/skipgram/blob/master/word2vec_model.py): refer the negative sampling and loss function design
+- [jungokasai/skipgram](https://github.com/jungokasai/skipgram/blob/master/word2vec_model.py): refer the negative sampling and loss function design.
