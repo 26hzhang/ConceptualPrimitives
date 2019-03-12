@@ -1,7 +1,7 @@
 # Conceptual Primitives
 
 Re-implementation of "[SenticNet 5: Discovering Conceptual Primitives for Sentiment Analysis by Means of Context Embeddings](
-https://aaai.org/ocs/index.php/AAAI/AAAI18/paper/view/16839/15882)" in tensorflow for verb primitives extraction and verb clustering.
+https://aaai.org/ocs/index.php/AAAI/AAAI18/paper/view/16839/15882)" in tensorflow for verb substitution and clustering.
 
 ## Overall Framework and Algorithm
 **Framework**:
