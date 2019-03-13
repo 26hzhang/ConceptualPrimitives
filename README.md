@@ -19,7 +19,7 @@ https://aaai.org/ocs/index.php/AAAI/AAAI18/paper/view/16839/15882)" in tensorflo
 To train the conceptual primitives model, please run:
 ```bash
 python3 main.py --gpu_idx 0 1 \  # number of GPUs used for training and their indices
-    --mode train \  # training model or inferring
+    --mode train \  # training model or infer
     --resume_training false \  # if true, will resume previous trained parameters
     --neg_sample 10 \  # number of negative samples
     --word_dim 300 \  # input pre-trained / randomly initialized word embedding dimension

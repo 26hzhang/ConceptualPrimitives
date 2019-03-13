@@ -161,9 +161,8 @@ elif config.mode == "infer":
     model.restore_last_session()
     sentence = "When idle, Dave enjoys eating cake with his sister."
     verb = "eating"
-    top_n = 10
-    candidates = model.inference(sentence, verb, top_n=top_n)
+    candidates = model.infer(sentence, verb, top_n=10, method="add")
     print(candidates)
 
 else:
-    raise ValueError("Unable to recognize mode: %s!!!" % config.mode)
+    raise ValueError("Unsupported mode: %s!!!" % config.mode)

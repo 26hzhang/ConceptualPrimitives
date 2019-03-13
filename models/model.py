@@ -5,6 +5,7 @@ from tqdm import tqdm
 from nltk.tokenize import word_tokenize
 from tensorflow.python.ops.rnn_cell import LSTMCell
 from tensorflow.python.ops.rnn import bidirectional_dynamic_rnn
+from sklearn.metrics.pairwise import cosine_similarity
 from utils.data_utils import dataset_iterator
 from utils.data_prepro import UNK
 
@@ -259,6 +260,7 @@ class ConceptualPrimitives:
                 print("right context shape: {}".format(self.get_shape(right_context_features)), flush=True)
 
         with tf.device("/gpu:{}".format(self.cfg.gpu_idx[1])):
+
             if self.cfg.use_ntn:
                 with tf.variable_scope("neural_tensor_network"):
                     tensor = tf.get_variable(name="tensor",
@@ -422,15 +424,16 @@ class ConceptualPrimitives:
 
         print("Training process finished...", flush=True)
 
-    def inference(self, sentence, verb, top_n=10):
+    def infer(self, sentence, verb, top_n=10, method="multiply"):
+        # pre-process inputs
         verb = verb.lower()
         words = word_tokenize(sentence.lower(), language="english")
         index = words.index(verb)
-        l_context = words[0:index]
-        l_context = [self.word_dict[word] if word in self.word_dict else self.word_dict[UNK] for word in l_context]
+
+        # build feed data
+        l_context = [self.word_dict[w] if w in self.word_dict else self.word_dict[UNK] for w in words[0:index]]
         l_seq_len = len(l_context)
-        r_context = words[index + 1:]
-        r_context = [self.word_dict[word] if word in self.word_dict else self.word_dict[UNK] for word in r_context]
+        r_context = [self.word_dict[w] if w in self.word_dict else self.word_dict[UNK] for w in words[index + 1:]]
         r_seq_len = len(r_context)
         verb = self.verb_dict[verb] if verb in self.verb_dict else self.verb_dict[UNK]
 
@@ -439,6 +442,7 @@ class ConceptualPrimitives:
         candidate_verbs.remove(self.verb_dict[UNK])
         candidate_verbs.remove(verb)
 
+        # compute context, target verb and candidates representations in the embedding hyperspace
         context_vec, verb_vec = self.sess.run([self.context, self.target_verb],
                                               feed_dict={
                                                   self.left_context: [l_context],
@@ -447,22 +451,25 @@ class ConceptualPrimitives:
                                                   self.right_seq_len: [r_seq_len],
                                                   self.verb: [verb]
                                               })
-        context_vec = np.reshape(context_vec, newshape=(self.cfg.k, ))
-        verb_vec = np.reshape(verb_vec, newshape=(self.cfg.k, ))
-        target_score = np.dot(context_vec, verb_vec)
 
         candidate_vecs = self.sess.run(self.target_verb, feed_dict={self.verb: candidate_verbs})
-        candidate_scores = np.sum(candidate_vecs * context_vec, axis=1)
 
-        candidate_similarities = candidate_scores - target_score
+        verb_candidate_similarity = cosine_similarity(verb_vec, candidate_vecs)
+        context_candidate_similarity = cosine_similarity(context_vec, candidate_vecs)
 
-        # sort
-        results = dict()
-        for candidate, similarity in zip(candidate_verbs, candidate_similarities):
-            results[candidate] = similarity
+        if method == "multiply":
+            similarities = verb_candidate_similarity * context_candidate_similarity
+        elif method == "add":
+            similarities = verb_candidate_similarity + context_candidate_similarity
+        else:
+            raise ValueError("Unsupported similarity method...")
+        similarities = np.reshape(similarities, newshape=(similarities.shape[1],))
 
-        top_candidates = sorted(results.items(), key=lambda kv: kv[1])[0:top_n]
+        candidate_dict = dict()
+        for i in range(similarities.shape[0]):
+            candidate_dict[candidate_verbs[i]] = similarities[i]
 
+        top_candidates = sorted(candidate_dict.items(), key=lambda kv: kv[1], reverse=True)[0:top_n]
         top_candidates = [self.rev_verb_dict[x] for x, _ in top_candidates]
 
         return top_candidates

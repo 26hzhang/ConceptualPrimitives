@@ -20,7 +20,7 @@ stopwords_list = set(list(stopwords.words("english")) + ["'s", "'ve", "'re", "'m
                                                          "esp.", "me.", "apply.", "want.", "n.", "approx.", "s.",
                                                          "expect.", "change.", "c/o", "can.", "and/or", "iron/ironing",
                                                          "lounge/dining", "living/dining", "pf", "n/a", "to/from", "hi",
-                                                         "see/hear", ""])
+                                                         "see/hear"])
 
 # cf. https://courses.washington.edu/hypertxt/csar-v02/penntable.html
 # cf. http://wacky.sslmit.unibo.it/lib/exe/fetch.php?media=tagsets:ukwac_tagset.txt
