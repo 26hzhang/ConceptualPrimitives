@@ -7,8 +7,6 @@ from models.ops_clustering import normalize_vectors, kmeans_clustering, compute_
 from utils.data_utils import boolean_string, read_to_dict, read_verb_count, write_clusters_dict_to_file, load_pickle, \
     write_pickle, write_clusters_list_to_file
 
-home = os.path.expanduser("~")
-
 # set network config
 parser = ArgumentParser()
 parser.add_argument("--gpu_idx", type=int, nargs="+", default=[0, 1], help="GPUs used for training")
@@ -35,12 +33,13 @@ parser.add_argument("--print_step", type=int, default=1000, help="number of step
 # set raw dataset path and glove vectors path
 parser.add_argument("--ukwac_path",
                     type=str,
-                    default=os.path.join(home, "utilities", "ukwac", "ukwac_pos", "pos_text"),
+                    default=os.path.join(os.path.expanduser("~"), "utilities", "ukwac", "ukwac_pos", "pos_text"),
                     help="raw dataset")
 
 parser.add_argument("--glove_path",
                     type=str,
-                    default=os.path.join(home, "utilities", "embeddings", "glove", "glove.840B.300d.txt"),
+                    default=os.path.join(os.path.expanduser("~"), "utilities", "embeddings", "glove",
+                                         "glove.840B.300d.txt"),
                     help="pretrained embeddings")
 
 # set dataset config
