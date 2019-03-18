@@ -8,7 +8,7 @@ from nltk.corpus import stopwords
 
 PAD = "<PAD>"  # pad token
 UNK = "<UNK>"  # unknown token
-separator = "\t\t"  # split left context, target verb and right context
+separator = "\t"  # split left context, target verb and right context
 
 # the english stopwords list used for remove unwanted target verbs
 stopwords_list = set(list(stopwords.words("english")) + ["'s", "'ve", "'re", "'m", "'d", "don\\'t", "don''t", "did'nt",
@@ -27,7 +27,7 @@ stopwords_list = set(list(stopwords.words("english")) + ["'s", "'ve", "'re", "'m
 verb_pos = ["VB", "VBZ", "VBP", "VBD", "VBN", "VBG", "VV", "VVN", "VVG", "VVD", "VVZ", "VVP", "VH", "VHP", "VHZ", "VHD",
             "VHG", "VHN"]
 
-# approximately vocabulary size for different pre-trained glove vectors
+# approximately vocabulary size for different pretrained glove vectors
 glove_size = {"2B": int(1.2e6), "6B": int(4e5), "42B": int(1.9e6), "840B": int(2.2e6)}
 
 
@@ -35,7 +35,8 @@ def load_glove_vocabulary(glove_path, dim):
     vocab = list()
 
     with codecs.open(glove_path, mode="r", encoding="utf-8") as f:
-        for line in tqdm(f, total=glove_size["42B"], desc="Load GloVe vocabulary"):
+
+        for line in tqdm(f, total=glove_size[glove_path.split(".")[-3]], desc="Load GloVe vocabulary"):
             line = line.lstrip().rstrip().split(" ")
 
             if len(line) == 2 or len(line) != dim + 1:
@@ -52,7 +53,7 @@ def load_glove_vectors(glove_path, word_dict, verb_dict, dim):
     verb_vectors = np.zeros(shape=[len(verb_dict), dim], dtype=np.float32)
 
     with codecs.open(glove_path, mode="r", encoding="utf-8") as f:
-        for line in tqdm(f, total=glove_size["42B"], desc="Load GloVe embeddings"):
+        for line in tqdm(f, total=glove_size[glove_path.split(".")[-3]], desc="Load GloVe embeddings"):
             line = line.lstrip().rstrip().split(" ")
 
             if len(line) == 2 or len(line) != dim + 1:
@@ -138,22 +139,29 @@ def build_dataset(ukwac_path, glove_path, save_path, word_threshold=90, word_low
 
                 temp_dataset_recorder = list()
 
-    # load pre-trained glove vocabulary
+    # load pretrained glove vocabulary
     glove_vocab = load_glove_vocabulary(glove_path, word_dim)
 
     # build word vocab and dict
     word_vocab = [word for word, count in word_counter.most_common() if count >= word_threshold and word in glove_vocab]
     word_dict = dict([(word, index) for index, word in enumerate(word_vocab)])
-    word_vocab = [PAD] + word_vocab + [UNK]
+    word_vocab = [PAD, UNK] + word_vocab
 
     # build verb vocab and dict
-    verb_count = [(verb, count) for verb, count in verb_counter.most_common() if count >= word_threshold
-                  and verb in glove_vocab]
-    verb_vocab = [verb_tuple[0] for verb_tuple in verb_count]
-    verb_dict = dict([(verb, index) for index, verb in enumerate(verb_vocab)])
-    verb_vocab = verb_vocab + [UNK]
+    verb_count = list()
+    unk_count = 0
+    for verb, count in verb_counter.most_common():
+        if count >= word_threshold and verb in glove_vocab:
+            verb_count.append((verb, count))
+        else:
+            unk_count += count
+    verb_dict = dict([(verb[0], index) for index, verb in enumerate(verb_count)])
+    verb_count = [(UNK, unk_count)] + verb_count
+    verb_vocab = [v[0] for v in verb_count]
 
-    # load pre-trained glove vectors
+    verb_count = verb_count[1:]  # remove UNK count from count list
+
+    # load pretrained glove vectors
     word_vectors, verb_vectors = load_glove_vectors(glove_path, word_dict, verb_dict, word_dim)
     np.savez_compressed(os.path.join(save_path, "word_vectors.npz"), embeddings=word_vectors)
     np.savez_compressed(os.path.join(save_path, "verb_vectors.npz"), embeddings=verb_vectors)
