@@ -13,7 +13,7 @@ home = os.path.expanduser("~")
 parser = ArgumentParser()
 parser.add_argument("--gpu_idx", type=int, nargs="+", default=[0, 1], help="GPUs used for training")
 parser.add_argument("--mode", type=str, default="train", help="mode [train | cluster | infer], default, train")
-parser.add_argument("--resume_training", type=boolean_string, default=False, help="resume previous trained parameters")
+parser.add_argument("--resume_train", type=boolean_string, default=False, help="resume previous trained parameters")
 parser.add_argument("--neg_sample", type=int, default=10, help="number of negative samples")
 parser.add_argument("--distortion", type=float, default=0.75, help="skew the unigram probability distribution")
 parser.add_argument("--word_dim", type=int, default=300, help="word embedding dimension")
@@ -94,7 +94,7 @@ model = ConceptualPrimitives(cfg=config,
                              verb_dict=verb_dict)
 
 if config.mode == "train":
-    if config.resume_training:
+    if config.resume_train:
         model.restore_last_session()
     model.train(dataset=config.dataset, save_step=config.save_step, print_step=config.print_step)
 
