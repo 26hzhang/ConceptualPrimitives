@@ -27,7 +27,7 @@ $ python3 main.py --gpu_idx 0 1 \  # number of GPUs used for training and their 
     --k 100 \  # number of units for output layer
     --use_ntn false \  # if use neural tensor network to fuse left and right contexts, otherwise just simply concatenate them
     --tune_emb false \  # whether the input word embedding are tunable while training
-    --lr 0.002 \  # learning rate
+    --lr 0.0001 \  # learning rate
     --decay_step 10000 \  # learning rate decay step
     --decay_rate 0.9994 \  # decay rate
     --batch_size 1000 \  # batch size
