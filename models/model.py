@@ -4,7 +4,8 @@ import tensorflow as tf
 from tqdm import tqdm
 from nltk.tokenize import word_tokenize
 from sklearn.metrics.pairwise import cosine_similarity
-from models.ops_nn import feed_forward_nets, neural_tensor_net, context_representation, naive_fusion, embedding_lookup
+from models.ops_nn import feed_forward_nets, neural_tensor_net, context_representation, naive_fusion, \
+    embedding_lookup, compute_loss
 from utils.data_utils import dataset_iterator
 from utils.data_prepro import UNK
 
@@ -101,7 +102,7 @@ class ConceptualPrimitives:
             num_sampled=self.cfg.batch_size * self.cfg.neg_sample,
             unique=False,
             range_max=self.verb_dict_size,
-            distortion=0.75,
+            distortion=self.cfg.distortion,
             num_reserved_ids=1,  # exclude the UNK token
             unigrams=self.verb_count,
             seed=12345
@@ -213,32 +214,18 @@ class ConceptualPrimitives:
                 if self.cfg.mode == "train":
                     print("negative verb shape: {}".format(negative_verbs.get_shape().as_list()), flush=True)
 
-            with tf.variable_scope("compute_logits"):
-                cv = tf.multiply(x=self.context,
-                                 y=self.target_verb)
-                true_logits = tf.reduce_sum(cv, axis=1)  # batch_sz
+            # compute loss
+            true_logits, negative_logits, self.loss = compute_loss(verbs=self.target_verb,
+                                                                   neg_verbs=negative_verbs,
+                                                                   context=self.context,
+                                                                   batch_size=self.cfg.batch_size,
+                                                                   name="compute_loss")
+            if self.cfg.mode == "train":
+                print("true logits shape: {}".format(self.get_shape(true_logits)), flush=True)
+                print("negative logits shape: {}".format(self.get_shape(negative_logits)), flush=True)
 
-                negative_cv = tf.multiply(x=tf.expand_dims(self.context, axis=-1),  # batch_sz x out_units x 1
-                                          y=tf.transpose(negative_verbs, perm=[0, 2, 1]))  # batch_sz x out_units x 10
-                negative_logits = tf.reduce_sum(negative_cv, axis=1)  # batch_sz x 10
-
-                if self.cfg.mode == "train":
-                    print("true logits shape: {}".format(self.get_shape(true_logits)), flush=True)
-                    print("negative logits shape: {}".format(self.get_shape(negative_logits)), flush=True)
-
-            with tf.variable_scope("compute_loss"):
-                true_xent = tf.nn.sigmoid_cross_entropy_with_logits(logits=true_logits,
-                                                                    labels=tf.ones_like(true_logits))
-
-                negative_xent = tf.nn.sigmoid_cross_entropy_with_logits(logits=negative_logits,
-                                                                        labels=tf.zeros_like(negative_logits))
-
-                self.loss = (tf.reduce_sum(true_xent) + tf.reduce_sum(negative_xent)) / self.cfg.batch_size
-
-            global_step = tf.Variable(0,
-                                      trainable=False,
-                                      name='global_step')
-
+            # build optimizer
+            global_step = tf.Variable(0, trainable=False, name='global_step')
             learning_rate = tf.train.exponential_decay(learning_rate=self.cfg.lr,
                                                        global_step=global_step,
                                                        decay_steps=self.cfg.decay_step,
@@ -288,17 +275,19 @@ class ConceptualPrimitives:
         print("Start training...", flush=True)
 
         global_step = 0
+        mean_losses = []
         for epoch in range(1, self.cfg.epochs + 1):
             for i, data in enumerate(dataset_iterator(dataset, self.word_dict, self.verb_dict, self.cfg.batch_size)):
 
                 global_step += 1
                 feed_dict = self.get_feed_dict(data, training=True)
                 _, losses, neg_verbs = self.sess.run([self.train_op, self.loss, self.neg_verbs], feed_dict=feed_dict)
+                mean_losses.append(losses)
 
                 if (i + 1) % print_step == 0:
                     train_loss = "{0:.4f}".format(losses)
-                    print("Epoch: {} / {}, Steps: {}, Global Steps: {}, Training Loss: {}".format(
-                        epoch, self.cfg.epochs, i + 1, global_step, train_loss), flush=True)
+                    print("Epoch: {}/{}, Cur Steps: {}, Global Steps: {}, Cur Training Loss: {}, Mean Loss: {}".format(
+                        epoch, self.cfg.epochs, i + 1, global_step, train_loss, np.mean(mean_losses)), flush=True)
                     # for debugging usage
                     test_sentence = "When idle, Dave enjoys eating cake with his sister."
                     test_verb = "eating"
@@ -342,12 +331,9 @@ class ConceptualPrimitives:
                                               })
 
         if show_vec is True:
-            cv = np.reshape(context_vec, newshape=(context_vec.shape[1], )).tolist()
-            cv = [float("{:.3f}".format(x)) for x in cv]
-            vv = np.reshape(verb_vec, newshape=(verb_vec.shape[1], )).tolist()
-            vv = [float("{:.3f}".format(x)) for x in vv]
-            print(cv, flush=True)
-            print(vv, flush=True)
+            cv = [float("{:.3f}".format(x)) for x in np.reshape(context_vec, newshape=(context_vec.shape[1],)).tolist()]
+            vv = [float("{:.3f}".format(x)) for x in np.reshape(verb_vec, newshape=(verb_vec.shape[1],)).tolist()]
+            print("context vec: {}\nverb vec: {}".format(str(cv), str(vv)), flush=True)
 
         candidate_vecs = self.sess.run(self.target_verb, feed_dict={self.verb: candidate_verbs})
 
@@ -356,11 +342,21 @@ class ConceptualPrimitives:
 
         if method == "multiply":
             similarities = verb_candidate_similarity * context_candidate_similarity
+            similarities = np.reshape(similarities, newshape=(similarities.shape[1],))
         elif method == "add":
             similarities = verb_candidate_similarity + context_candidate_similarity
+            similarities = np.reshape(similarities, newshape=(similarities.shape[1],))
+        elif method == "both":
+            sim_mul = verb_candidate_similarity * context_candidate_similarity
+            sim_mul = np.reshape(sim_mul, newshape=(sim_mul.shape[1], ))
+            sim_mul = (sim_mul - np.min(sim_mul)) / (np.max(sim_mul) - np.min(sim_mul))  # normalize
+            sim_add = verb_candidate_similarity + context_candidate_similarity
+            sim_add = np.reshape(sim_add, newshape=(sim_add.shape[1],))
+            sim_add = (sim_add - np.min(sim_add)) / (np.max(sim_add) - np.min(sim_add))  # normalize
+
+            similarities = sim_mul + sim_add
         else:
-            raise ValueError("Unsupported similarity method...")
-        similarities = np.reshape(similarities, newshape=(similarities.shape[1], ))
+            raise ValueError("Unsupported similarity method, only [multiply | add | both] are allowed...")
 
         candidate_dict = dict()
         for i in range(similarities.shape[0]):

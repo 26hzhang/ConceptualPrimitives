@@ -15,6 +15,7 @@ parser.add_argument("--gpu_idx", type=int, nargs="+", default=[0, 1], help="GPUs
 parser.add_argument("--mode", type=str, default="train", help="mode [train | cluster | infer], default, train")
 parser.add_argument("--resume_training", type=boolean_string, default=False, help="resume previous trained parameters")
 parser.add_argument("--neg_sample", type=int, default=10, help="number of negative samples")
+parser.add_argument("--distortion", type=float, default=0.75, help="skew the unigram probability distribution")
 parser.add_argument("--word_dim", type=int, default=300, help="word embedding dimension")
 parser.add_argument("--num_units", type=int, default=300, help="number of units for rnn cell and hidden layer of ffn")
 parser.add_argument("--k", type=int, default=100, help="number of units for output part")

@@ -163,3 +163,28 @@ def naive_fusion(inputs1, inputs2, output_units, use_bias=True, bias_init=0.0, a
                                   name="project")
 
         return outputs
+
+
+def compute_loss(verbs, neg_verbs, context, batch_size, name="compute_loss"):
+    with tf.variable_scope(name):
+        # compute context & verb score
+        cv = tf.multiply(x=context, y=verbs)
+        true_logits = tf.reduce_sum(cv, axis=1)  # batch_sz
+
+        # compute context & negative verb score
+        negative_cv = tf.multiply(x=tf.expand_dims(context, axis=-1),  # batch_sz x out_units x 1
+                                  y=tf.transpose(neg_verbs, perm=[0, 2, 1]))  # batch_sz x out_units x neg_sample
+        negative_logits = tf.reduce_sum(negative_cv, axis=1)  # batch_sz x neg_sample
+
+        # compute true cross entropy
+        true_xent = tf.nn.sigmoid_cross_entropy_with_logits(logits=true_logits,
+                                                            labels=tf.ones_like(true_logits))
+
+        # compute negative cross entropy
+        negative_xent = tf.nn.sigmoid_cross_entropy_with_logits(logits=negative_logits,
+                                                                labels=tf.zeros_like(negative_logits))
+
+        # compute loss
+        loss = (tf.reduce_sum(true_xent) + tf.reduce_sum(negative_xent)) / batch_size
+
+        return true_logits, negative_logits, loss
