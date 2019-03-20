@@ -1,6 +1,7 @@
 import os
 import pickle
 import codecs
+from nltk.tokenize import word_tokenize
 from utils.data_prepro import UNK, separator
 
 
@@ -38,16 +39,7 @@ def write_pickle(data, filename):
         pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def write_clusters_dict_to_file(cluster_dict, save_path):
-    with codecs.open(save_path, mode="w", encoding="utf-8") as f:
-        for key, value in cluster_dict.items():
-            f.write("{},".format(key))
-            for k, v in value.items():
-                f.write("{} {:.2f},".format(k, v))
-            f.write("\n")
-
-
-def write_clusters_list_to_file(cluster_dict, save_path):
+def write_csv(cluster_dict, save_path):
     with codecs.open(save_path, mode="w", encoding="utf-8") as f:
         for key, value in cluster_dict.items():
             f.write("{},{}\n".format(key, ",".join(value)))
@@ -129,3 +121,25 @@ def dataset_iterator(dataset_file, word_dict, verb_dict, batch_size):
             if len(left_contexts) == batch_size:
                 yield build_batch_dataset(left_contexts, verbs, right_contexts)
                 left_contexts, verbs, right_contexts = [], [], []
+
+
+def convert_single(sentence, verb, word_dict, verb_dict):
+    # pre-process inputs
+    verb = verb.lower()
+    words = word_tokenize(sentence.lower(), language="english")
+    index = words.index(verb)
+
+    # build feed data
+    l_context = [word_dict[w] if w in word_dict else word_dict[UNK] for w in words[0:index]]
+    l_seq_len = len(l_context)
+    r_context = [word_dict[w] if w in word_dict else word_dict[UNK] for w in words[index + 1:]]
+    r_seq_len = len(r_context)
+    verb = verb_dict[verb] if verb in verb_dict else verb_dict[UNK]
+
+    # deal with substitution of target verb
+    candidate_verbs = [x for x in list(verb_dict.values())]
+    candidate_verbs.remove(verb_dict[UNK])
+    candidate_verbs.remove(verb)
+
+    return {"l_context": [l_context], "l_seq_len": [l_seq_len], "r_context": [r_context],
+            "r_seq_len": [r_seq_len], "verb": [verb], "candidate_verbs": candidate_verbs}

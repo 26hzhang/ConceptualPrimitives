@@ -10,7 +10,7 @@ PAD = "<PAD>"  # pad token
 UNK = "<UNK>"  # unknown token
 separator = "\t"  # split left context, target verb and right context
 
-# the english stopwords list used for remove unwanted target verbs
+# the english stopwords list used for remove unwanted/wrong target verbs
 stopwords_list = set(list(stopwords.words("english")) + ["'s", "'ve", "'re", "'m", "'d", "don\\'t", "don''t", "did'nt",
                                                          "can''t", "24-hours", "you.", "e.g.", "a.", "said.", "be.",
                                                          "ie.", "i.e", "do.", "eg.", "i.", "....", "c.", "viz.", "b.",

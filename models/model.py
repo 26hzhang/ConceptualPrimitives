@@ -1,12 +1,10 @@
-import pickle
+import os
 import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
-from nltk.tokenize import word_tokenize
-from sklearn.metrics.pairwise import cosine_similarity
-from models.ops_nn import feed_forward_nets, neural_tensor_net, context_representation, naive_fusion, \
-    embedding_lookup, compute_loss
-from utils.data_utils import dataset_iterator
+from models.ops_nns import feed_forward_nets, neural_tensor_net, context_representation, naive_fusion, \
+    embedding_lookup, compute_loss, compute_top_candidates
+from utils.data_utils import dataset_iterator, load_pickle, write_pickle, convert_single
 from utils.data_prepro import UNK
 
 
@@ -233,43 +231,42 @@ class ConceptualPrimitives:
 
             optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
             self.train_op = optimizer.minimize(self.loss, global_step=global_step)
+    
+    def get_verb_embs(self, emb_type="init", save_path=None):
+        if save_path is not None and os.path.exists(save_path):
+            result = load_pickle(filename=save_path)
+            return result["vocab"], result["vectors"]
 
-    def get_verb_embeddings(self, save_path=None):
-        verb_embs = self.sess.run(self.verb_embeddings)[1:]  # remove UNK
-        verb_dict = self.verb_dict.copy()
-        verb_dict.pop(UNK)
-
-        verb_vocab, verb_vectors = list(), list()
-        for verb, idx in tqdm(verb_dict.items(), total=len(verb_dict), desc="extract verb embeddings"):
-            verb_vocab.append(verb)
-            verb_vectors.append(verb_embs[idx])
-
-        result = {"vocab": verb_vocab, "vectors": np.asarray(verb_vectors)}
-
-        if save_path is not None:
-            with open(save_path, mode="wb") as handle:
-                pickle.dump(result, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-        return result
-
-    def get_verb_representation(self, save_path=None):
         verb_dict = self.verb_dict.copy()
         verb_dict.pop(UNK)  # remove UNK
 
-        verb_vocab, verb_vectors = list(), list()
-        for verb, idx in tqdm(verb_dict.items(), total=len(verb_dict), desc="extract verb representations"):
-            verb_vector = self.sess.run(self.target_verb, feed_dict={self.verb: [idx]})
-            verb_vector = np.reshape(verb_vector, newshape=(self.cfg.k,))
-            verb_vocab.append(verb)
-            verb_vectors.append(verb_vector)
+        if emb_type == "init":
+            verb_embs = self.sess.run(self.verb_embeddings)[1:]  # remove UNK
+            verb_vocab, verb_vectors = list(), list()
 
-        result = {"vocab": verb_vocab, "vectors": np.asarray(verb_vectors)}
+            for verb, idx in tqdm(verb_dict.items(), total=len(verb_dict), desc="extract verb embeddings"):
+                verb_vocab.append(verb)
+                verb_vectors.append(verb_embs[idx])
+
+            result = {"vocab": verb_vocab, "vectors": np.asarray(verb_vectors)}
+
+        elif emb_type == "target":
+            verb_vocab, verb_vectors = list(), list()
+
+            for verb, idx in tqdm(verb_dict.items(), total=len(verb_dict), desc="extract verb representations"):
+                verb_vector = self.sess.run(self.target_verb, feed_dict={self.verb: [idx]})
+                verb_vocab.append(verb)
+                verb_vectors.append(np.reshape(verb_vector, newshape=(self.cfg.k, )))
+
+            result = {"vocab": verb_vocab, "vectors": np.asarray(verb_vectors)}
+
+        else:
+            raise ValueError("Unknown emb type...")
 
         if save_path is not None:
-            with open(save_path, mode="wb") as handle:
-                pickle.dump(result, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            write_pickle(result, filename=save_path)
 
-        return result
+        return result["vocab"], result["vectors"]
 
     def train(self, dataset, save_step=10000, print_step=1000):
         print("Start training...", flush=True)
@@ -304,30 +301,16 @@ class ConceptualPrimitives:
 
     def inference(self, sentence, verb, top_n=10, method="multiply", show_vec=True):
         # pre-process inputs
-        verb = verb.lower()
-        words = word_tokenize(sentence.lower(), language="english")
-        index = words.index(verb)
-
-        # build feed data
-        l_context = [self.word_dict[w] if w in self.word_dict else self.word_dict[UNK] for w in words[0:index]]
-        l_seq_len = len(l_context)
-        r_context = [self.word_dict[w] if w in self.word_dict else self.word_dict[UNK] for w in words[index + 1:]]
-        r_seq_len = len(r_context)
-        verb = self.verb_dict[verb] if verb in self.verb_dict else self.verb_dict[UNK]
-
-        # deal with substitution of target verb
-        candidate_verbs = [x for x in list(self.verb_dict.values())]
-        candidate_verbs.remove(self.verb_dict[UNK])
-        candidate_verbs.remove(verb)
+        processed_tokens = convert_single(sentence, verb, word_dict=self.word_dict, verb_dict=self.verb_dict)
 
         # compute context, target verb and candidates representations in the embedding hyperspace
         context_vec, verb_vec = self.sess.run([self.context, self.target_verb],
                                               feed_dict={
-                                                  self.left_context: [l_context],
-                                                  self.left_seq_len: [l_seq_len],
-                                                  self.right_context: [r_context],
-                                                  self.right_seq_len: [r_seq_len],
-                                                  self.verb: [verb]
+                                                  self.left_context: processed_tokens["l_context"],
+                                                  self.left_seq_len: processed_tokens["l_seq_len"],
+                                                  self.right_context: processed_tokens["r_context"],
+                                                  self.right_seq_len: processed_tokens["r_seq_len"],
+                                                  self.verb: processed_tokens["verb"]
                                               })
 
         if show_vec is True:
@@ -335,33 +318,14 @@ class ConceptualPrimitives:
             vv = [float("{:.3f}".format(x)) for x in np.reshape(verb_vec, newshape=(verb_vec.shape[1],)).tolist()]
             print("context vec: {}\nverb vec: {}".format(str(cv), str(vv)), flush=True)
 
+        candidate_verbs = processed_tokens["candidate_verbs"]
         candidate_vecs = self.sess.run(self.target_verb, feed_dict={self.verb: candidate_verbs})
 
-        verb_candidate_similarity = cosine_similarity(verb_vec, candidate_vecs)
-        context_candidate_similarity = cosine_similarity(context_vec, candidate_vecs)
-
-        if method == "multiply":
-            similarities = verb_candidate_similarity * context_candidate_similarity
-            similarities = np.reshape(similarities, newshape=(similarities.shape[1],))
-        elif method == "add":
-            similarities = verb_candidate_similarity + context_candidate_similarity
-            similarities = np.reshape(similarities, newshape=(similarities.shape[1],))
-        elif method == "both":
-            sim_mul = verb_candidate_similarity * context_candidate_similarity
-            sim_mul = np.reshape(sim_mul, newshape=(sim_mul.shape[1], ))
-            sim_mul = (sim_mul - np.min(sim_mul)) / (np.max(sim_mul) - np.min(sim_mul))  # normalize
-            sim_add = verb_candidate_similarity + context_candidate_similarity
-            sim_add = np.reshape(sim_add, newshape=(sim_add.shape[1],))
-            sim_add = (sim_add - np.min(sim_add)) / (np.max(sim_add) - np.min(sim_add))  # normalize
-
-            similarities = sim_mul + sim_add
-        else:
-            raise ValueError("Unsupported similarity method, only [multiply | add | both] are allowed...")
-
-        candidate_dict = dict()
-        for i in range(similarities.shape[0]):
-            candidate_dict[candidate_verbs[i]] = similarities[i]
-
-        top_candidates = sorted(candidate_dict.items(), key=lambda kv: kv[1], reverse=True)[0:top_n]
-        top_candidates = [self.rev_verb_dict[x] for x, _ in top_candidates]
+        top_candidates = compute_top_candidates(candidate_verbs=candidate_verbs,
+                                                candidate_vecs=candidate_vecs,
+                                                context_vec=context_vec,
+                                                verb_vec=verb_vec,
+                                                rev_dict=self.rev_verb_dict,
+                                                method=method,
+                                                top_n=top_n)
         return top_candidates

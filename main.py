@@ -1,11 +1,9 @@
 import os
-from tqdm import tqdm
 from argparse import ArgumentParser
 from models.model import ConceptualPrimitives
 from utils.data_prepro import build_dataset
-from models.ops_clustering import normalize_vectors, kmeans_clustering, compute_distance, compute_knearest
-from utils.data_utils import boolean_string, read_to_dict, read_verb_count, write_clusters_dict_to_file, load_pickle, \
-    write_pickle, write_clusters_list_to_file
+from models.ops_clustering import clustering
+from utils.data_utils import boolean_string, read_to_dict, read_verb_count, write_csv
 
 # set network config
 parser = ArgumentParser()
@@ -54,10 +52,9 @@ parser.add_argument("--word_threshold", type=int, default=90, help="word thresho
 parser.add_argument("--word_lowercase", type=boolean_string, default=True, help="word lowercase")
 
 # arguments for clustering
-parser.add_argument("--target", type=str, default="rep", help="[emb | rep], default, rep")
-parser.add_argument("--norm", type=str, default="l2", help="if not none, use corresponding method to normalize vectors")
-parser.add_argument("--num_cluster", type=int, default=204, help="number of clusters is required")
-parser.add_argument("--method", type=str, default="kmeans", help="[kmeans | knearest]")
+parser.add_argument("--emb_type", type=str, default="target", help="[init | target], default, target")
+parser.add_argument("--num_cluster", type=int, default=50, help="number of clusters is required")
+parser.add_argument("--cluster_method", type=str, default="kmeans", help="[kmeans | knearest]")
 
 # parse arguments
 config = parser.parse_args()
@@ -98,71 +95,23 @@ if config.mode == "train":
     model.train(dataset=config.dataset, save_step=config.save_step, print_step=config.print_step)
 
 elif config.mode == "cluster":
-    if config.method not in ["kmeans", "knearest"]:
-        raise ValueError("Unknown clustering method...")
     # restore model
     model.restore_last_session()
     # extract verb embeddings and corresponding representations of the model
-    if config.target == "emb":
-        save_name = "verb_emb"
-        if not os.path.exists("data/verb_embeddings.pkl"):
-            verb_embeddings = model.get_verb_embeddings()  # verb embeddings are GloVe if tune_emb is False
-            write_pickle(verb_embeddings, filename="data/verb_embeddings.pkl")
-        else:
-            verb_embeddings = load_pickle("data/verb_embeddings.pkl")
-        vocab, vectors = verb_embeddings["vocab"], verb_embeddings["vectors"]
-    elif config.target == "rep":
-        save_name = "verb_rep"
-        if not os.path.exists("data/verb_representations.pkl"):
-            verb_representations = model.get_verb_representation()
-            write_pickle(verb_representations, filename="data/verb_representations.pkl")
-        else:
-            verb_representations = load_pickle("data/verb_representations.pkl")
-        vocab, vectors = verb_representations["vocab"], verb_representations["vectors"]
-    else:
-        raise ValueError("Unknown target mode...")
-    # normalize vectors if possible
-    if config.norm is not None:
-        vectors = normalize_vectors(vectors, norm_method=config.norm)
-    if not os.path.exists("data/{}_kmeans_cluster.pkl".format(save_name)):
-        # k-means clustering
-        print("k-means clustering...")
-        labels, centroids, score, silhouette_score = kmeans_clustering(vectors,
-                                                                       clusters=config.num_cluster,
-                                                                       init="k-means++",
-                                                                       n_init=20,
-                                                                       max_iter=10000,
-                                                                       tol=1e-12,
-                                                                       verbose=0)
-        print("Score (opposite of the value of embeddings on the K-means objective) is the sum of {}".format(score))
-        print("Silhouette score: {}".format(silhouette_score))
-        keep_score = False
-        clusters = compute_distance(vocab,
-                                    labels=labels,
-                                    vectors=vectors,
-                                    centroids=centroids,
-                                    dist_method="cosine",
-                                    keep_score=keep_score)
-        if keep_score:
-            write_clusters_dict_to_file(clusters, save_path="data/{}_kmeans_cluster.csv".format(save_name))
-        else:
-            write_clusters_list_to_file(clusters, save_path="data/{}_kmeans_cluster.csv".format(save_name))
-        write_pickle(clusters, filename="data/{}_kmeans_cluster.pkl".format(save_name))
-    else:
-        print("load kmeans cluster...")
-        clusters = load_pickle("data/{}_kmeans_cluster.pkl".format(save_name))
-    if config.method == "knearest":
-        clusters_dict = dict()
-        for cluster_idx, verb in tqdm(clusters.items(), total=len(clusters), desc="compute k-nearest verbs"):
-            # key_verb = next(iter(verb))
-            key_verb = verb[0]
-            sub_verbs = compute_knearest(verb=key_verb,
-                                         vocab=vocab,
-                                         vectors=vectors,
-                                         dist_method="cosine",
-                                         top_k=100)
-            clusters_dict[cluster_idx] = [key_verb] + sub_verbs
-        write_clusters_list_to_file(clusters_dict, save_path="data/{}_knearest_cluster.csv".format(save_name))
+    vocab, vectors = model.get_verb_embs(emb_type=config.emb_type,
+                                         save_path="data/{}_verb_embs.pkl".format(config.emb_type))
+
+    # clustering
+    clusters = clustering(vectors=vectors,
+                          vocab=vocab,
+                          num_clusters=config.num_cluster,
+                          cluster_method=config.cluster_method,
+                          save_path="data/{}_{}.pkl".format(config.emb_type, config.cluster_method),
+                          norm=True,
+                          norm_method="l2")
+
+    # save to csv file
+    write_csv(clusters, save_path="{}_{}.csv".format(config.target, config.cluster_method))
 
 elif config.mode == "infer":
     model.restore_last_session()

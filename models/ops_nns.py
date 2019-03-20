@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow as tf
+from sklearn.metrics.pairwise import cosine_similarity
 from tensorflow.python.ops.rnn_cell import LSTMCell
 from tensorflow.python.ops.rnn import bidirectional_dynamic_rnn
 
@@ -188,3 +189,34 @@ def compute_loss(verbs, neg_verbs, context, batch_size, name="compute_loss"):
         loss = (tf.reduce_sum(true_xent) + tf.reduce_sum(negative_xent)) / batch_size
 
         return true_logits, negative_logits, loss
+
+
+def compute_top_candidates(candidate_verbs, candidate_vecs, context_vec, verb_vec, rev_dict, method="add", top_n=20):
+    verb_candidate_similarity = cosine_similarity(verb_vec, candidate_vecs)
+    context_candidate_similarity = cosine_similarity(context_vec, candidate_vecs)
+
+    if method == "multiply":
+        similarities = verb_candidate_similarity * context_candidate_similarity
+        similarities = np.reshape(similarities, newshape=(similarities.shape[1],))
+    elif method == "add":
+        similarities = verb_candidate_similarity + context_candidate_similarity
+        similarities = np.reshape(similarities, newshape=(similarities.shape[1],))
+    elif method == "both":
+        sim_mul = verb_candidate_similarity * context_candidate_similarity
+        sim_mul = np.reshape(sim_mul, newshape=(sim_mul.shape[1],))
+        sim_mul = (sim_mul - np.min(sim_mul)) / (np.max(sim_mul) - np.min(sim_mul))  # normalize
+        sim_add = verb_candidate_similarity + context_candidate_similarity
+        sim_add = np.reshape(sim_add, newshape=(sim_add.shape[1],))
+        sim_add = (sim_add - np.min(sim_add)) / (np.max(sim_add) - np.min(sim_add))  # normalize
+
+        similarities = sim_mul + sim_add
+    else:
+        raise ValueError("Unsupported similarity method, only [multiply | add | both] are allowed...")
+
+    candidate_dict = dict()
+    for i in range(similarities.shape[0]):
+        candidate_dict[candidate_verbs[i]] = similarities[i]
+
+    top_candidates = sorted(candidate_dict.items(), key=lambda kv: kv[1], reverse=True)[0:top_n]
+    top_candidates = [rev_dict[x] for x, _ in top_candidates]
+    return top_candidates

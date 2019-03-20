@@ -1,8 +1,11 @@
+import os
 import numpy as np
-from sklearn.preprocessing import normalize
+from tqdm import tqdm
 from collections import OrderedDict
 from sklearn import cluster, metrics
+from sklearn.preprocessing import normalize
 from scipy.spatial.distance import cosine, euclidean
+from utils.data_utils import write_pickle, load_pickle
 from sklearn.metrics.pairwise import cosine_distances, euclidean_distances
 
 
@@ -30,14 +33,22 @@ def compute_distance(vocab, labels, vectors, centroids, dist_method="cosine", ke
             distance = euclidean(centroids[label], vectors[vocab.index(verb)])
         results[label] = results.get(label, []) + [(verb, distance)]
     cluster_dict = dict()
+    cluster_score_dict = dict()
     for key, value in results.items():
+        value = sorted(value, key=lambda kv: kv[1])
+        words, scores = list(), list()
+        for word, score in value:
+            words.append(word)
+            scores.append(score)
         value = dict(value)
-        value = OrderedDict(sorted(value.items(), key=lambda kv: kv[1]))
-        if not keep_score:
-            value = list(value)
         cluster_dict[key] = value
+        cluster_score_dict[key] = scores
     cluster_dict = OrderedDict(sorted(cluster_dict.items(), key=lambda kv: kv[0]))
-    return cluster_dict
+    cluster_score_dict = OrderedDict(sorted(cluster_score_dict.items(), key=lambda kv: kv[0]))
+    if keep_score:
+        return cluster_dict, cluster_score_dict
+    else:
+        return cluster_dict
 
 
 def compute_knearest(verb, vocab, vectors, dist_method="cosine", top_k=100):
@@ -70,3 +81,50 @@ def compute_knearest(verb, vocab, vectors, dist_method="cosine", top_k=100):
     top_knearest = OrderedDict(sorted(top_knearest.items(), key=lambda kv: kv[1]))
     top_knearest = [vocab[idx] for idx in list(top_knearest)[0:top_k]]
     return top_knearest
+
+
+def clustering(vectors, vocab, num_clusters, cluster_method="kmeans", save_path=None, norm=True, norm_method="l2"):
+    if save_path is not None and os.path.exists(save_path):
+        return load_pickle(save_path)
+    else:
+        if norm:
+            vectors = normalize_vectors(vectors, norm_method=norm_method)
+
+        print("k-means clustering...")
+        labels, centroids, score, silhouette_score = kmeans_clustering(vectors,
+                                                                       clusters=num_clusters,
+                                                                       init="k-means++",
+                                                                       n_init=20,
+                                                                       max_iter=10000,
+                                                                       tol=1e-12,
+                                                                       verbose=0)
+        print("Score (opposite of the value of embeddings on the K-means objective) is the sum of {}".format(score))
+        print("Silhouette score: {}".format(silhouette_score))
+
+        clusters = compute_distance(vocab=vocab,
+                                    labels=labels,
+                                    vectors=vectors,
+                                    centroids=centroids,
+                                    dist_method="cosine",
+                                    keep_score=False)
+
+        if cluster_method == "kmeans":
+            write_pickle(clusters, filename=save_path)
+            return clusters
+
+        elif cluster_method == "knearest":
+            clusters_dict = dict()
+            for cluster_idx, verb in tqdm(clusters.items(), total=len(clusters), desc="compute k-nearest verbs"):
+                # key_verb = next(iter(verb))
+                key_verb = verb[0]
+                sub_verbs = compute_knearest(verb=key_verb,
+                                             vocab=vocab,
+                                             vectors=vectors,
+                                             dist_method="cosine",
+                                             top_k=100)
+                clusters_dict[cluster_idx] = [key_verb] + sub_verbs
+            write_pickle(clusters_dict, filename=save_path)
+            return clusters_dict
+
+        else:
+            raise ValueError("Unsupported clustering method, only [kmeans | knearest] are utilized!!!")
