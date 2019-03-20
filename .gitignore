@@ -107,5 +107,6 @@ venv.bak/
 .idea/
 ckpt/
 data/
+data_sent/
 .DS_Store
 *.DS_Store
