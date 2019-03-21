@@ -111,7 +111,7 @@ elif config.mode == "cluster":
                           norm_method="l2")
 
     # save to csv file
-    write_csv(clusters, save_path="{}_{}.csv".format(config.target, config.cluster_method))
+    write_csv(clusters, save_path="{}_{}.csv".format(config.emb_type, config.cluster_method))
 
 elif config.mode == "infer":
     model.restore_last_session()
