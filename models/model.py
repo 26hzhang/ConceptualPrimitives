@@ -26,7 +26,7 @@ class ConceptualPrimitives:
         self._init_session()
 
     def _init_session(self):
-        sess_config = tf.ConfigProto(allow_soft_placement=True)
+        sess_config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=True)
         sess_config.gpu_options.allow_growth = True
         self.sess = tf.Session(config=sess_config)
 
@@ -168,7 +168,7 @@ class ConceptualPrimitives:
                 # neural tensor network
                 self.context = neural_tensor_net(inputs1=left_context_features,
                                                  inputs2=right_context_features,
-                                                 hidden_units=2 * self.cfg.num_units,
+                                                 hidden_units=self.cfg.num_units,
                                                  output_units=self.cfg.k,
                                                  activation=tf.nn.tanh,
                                                  reuse=False,
@@ -222,15 +222,20 @@ class ConceptualPrimitives:
                 print("true logits shape: {}".format(self.get_shape(true_logits)), flush=True)
                 print("negative logits shape: {}".format(self.get_shape(negative_logits)), flush=True)
 
-            # build optimizer
+        if self.cfg.exp_decay:
             global_step = tf.Variable(0, trainable=False, name='global_step')
-            learning_rate = tf.train.exponential_decay(learning_rate=self.cfg.lr,
-                                                       global_step=global_step,
-                                                       decay_steps=self.cfg.decay_step,
-                                                       decay_rate=self.cfg.decay_rate)
 
-            optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-            self.train_op = optimizer.minimize(self.loss, global_step=global_step)
+            self.learning_rate = tf.train.exponential_decay(learning_rate=self.cfg.lr,
+                                                            global_step=global_step,
+                                                            decay_steps=int(1e4),
+                                                            decay_rate=0.9994)
+
+            optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
+            self.train_op = optimizer.minimize(self.loss, global_step=global_step, colocate_gradients_with_ops=True)
+
+        else:
+            optimizer = tf.train.AdamOptimizer(learning_rate=self.cfg.lr)
+            self.train_op = optimizer.minimize(self.loss, colocate_gradients_with_ops=True)
     
     def get_verb_embs(self, emb_type="init", save_path=None):
         if save_path is not None and os.path.exists(save_path):
@@ -268,7 +273,7 @@ class ConceptualPrimitives:
 
         return result["vocab"], result["vectors"]
 
-    def train(self, dataset, save_step=10000, print_step=1000):
+    def train(self, dataset, save_step=10000, print_step=1000, debug_step=10000):
         print("Start training...", flush=True)
 
         global_step = 0
@@ -278,6 +283,36 @@ class ConceptualPrimitives:
 
                 global_step += 1
                 feed_dict = self.get_feed_dict(data, training=True)
+                if self.cfg.exp_decay:
+                    _, losses, l_rate, neg_verbs = self.sess.run([self.train_op, self.loss, self.learning_rate,
+                                                                  self.neg_verbs],
+                                                                 feed_dict=feed_dict)
+                    mean_losses.append(losses)
+                    if (i + 1) % print_step == 0:
+                        print("Epoch: {}/{}, Steps: {}, Global Steps: {}, Learning Rate: {} Training Loss: {}, "
+                              "Mean Loss: {}".format(epoch, self.cfg.epochs, i + 1, global_step, l_rate,
+                                                     "{0:.4f}".format(losses), np.mean(mean_losses)), flush=True)
+                else:
+                    _, losses, neg_verbs = self.sess.run([self.train_op, self.loss, self.neg_verbs],
+                                                         feed_dict=feed_dict)
+                    mean_losses.append(losses)
+                    if (i + 1) % print_step == 0:
+                        print("Epoch: {} / {}, Steps: {}, Global Steps: {}, Training Loss: {}, Mean Loss: {}".format(
+                            epoch, self.cfg.epochs, i + 1, global_step, "{0:.4f}".format(losses), np.mean(mean_losses)),
+                            flush=True)
+
+                if (i + 1) % debug_step == 0:
+                    # for debugging usage
+                    test_left_context = "When idle, Dave enjoys"
+                    test_right_context = "cake with his sister."
+                    test_verb = "eating"
+                    candidates = self.inference(test_left_context, test_right_context, test_verb, top_n=20,
+                                                method="add", show_vec=True)
+                    print(candidates, flush=True)
+
+                if global_step % save_step == 0:
+                    self.save_session(global_step)
+
                 _, losses, neg_verbs = self.sess.run([self.train_op, self.loss, self.neg_verbs], feed_dict=feed_dict)
                 mean_losses.append(losses)
 
@@ -286,9 +321,11 @@ class ConceptualPrimitives:
                     print("Epoch: {}/{}, Cur Steps: {}, Global Steps: {}, Cur Training Loss: {}, Mean Loss: {}".format(
                         epoch, self.cfg.epochs, i + 1, global_step, train_loss, np.mean(mean_losses)), flush=True)
                     # for debugging usage
-                    test_sentence = "When idle, Dave enjoys eating cake with his sister."
+                    left_sentence = "When idle, Dave enjoys"
+                    right_sentence = "cake with his sister."
                     test_verb = "eating"
-                    candidates = self.inference(test_sentence, test_verb, top_n=20, method="add", show_vec=True)
+                    candidates = self.inference(left_sentence, right_sentence, test_verb, top_n=20, method="add",
+                                                show_vec=True)
                     print(candidates)
 
                 if global_step % save_step == 0:
@@ -299,9 +336,10 @@ class ConceptualPrimitives:
 
         print("Training process finished...", flush=True)
 
-    def inference(self, sentence, verb, top_n=10, method="multiply", show_vec=True):
+    def inference(self, left_sent, right_sent, verb, top_n=10, method="multiply", show_vec=True):
         # pre-process inputs
-        processed_tokens = convert_single(sentence, verb, word_dict=self.word_dict, verb_dict=self.verb_dict)
+        processed_tokens = convert_single(left_sent, right_sent, verb, word_dict=self.word_dict,
+                                          verb_dict=self.verb_dict)
 
         # compute context, target verb and candidates representations in the embedding hyperspace
         context_vec, verb_vec = self.sess.run([self.context, self.target_verb],

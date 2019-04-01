@@ -123,16 +123,16 @@ def dataset_iterator(dataset_file, word_dict, verb_dict, batch_size):
                 left_contexts, verbs, right_contexts = [], [], []
 
 
-def convert_single(sentence, verb, word_dict, verb_dict):
+def convert_single(left_sent, right_sent, verb, word_dict, verb_dict):
     # pre-process inputs
     verb = verb.lower()
-    words = word_tokenize(sentence.lower(), language="english")
-    index = words.index(verb)
+    left_words = word_tokenize(left_sent.lower(), language="english")
+    right_words = word_tokenize(right_sent.lower(), language="english")
 
     # build feed data
-    l_context = [word_dict[w] if w in word_dict else word_dict[UNK] for w in words[0:index]]
+    l_context = [word_dict[w] if w in word_dict else word_dict[UNK] for w in left_words]
     l_seq_len = len(l_context)
-    r_context = [word_dict[w] if w in word_dict else word_dict[UNK] for w in words[index + 1:]]
+    r_context = [word_dict[w] if w in word_dict else word_dict[UNK] for w in right_words]
     r_seq_len = len(r_context)
     verb = verb_dict[verb] if verb in verb_dict else verb_dict[UNK]
 

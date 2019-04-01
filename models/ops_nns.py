@@ -104,7 +104,7 @@ def context_representation(inputs, seq_len, num_units, activation=tf.nn.tanh, us
 
         # dense layer project
         context_features = tf.layers.dense(context_features,
-                                           units=2 * num_units,
+                                           units=num_units,
                                            use_bias=use_bias,
                                            kernel_initializer=tf.glorot_uniform_initializer(),
                                            activation=activation,

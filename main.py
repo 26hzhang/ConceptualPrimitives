@@ -18,6 +18,7 @@ parser.add_argument("--k", type=int, default=100, help="number of units for outp
 parser.add_argument("--tune_emb", type=boolean_string, default=False, help="tune pretrained embeddings while training")
 parser.add_argument("--use_ntn", type=boolean_string, default=True, help="if true, use neural tensor network")
 parser.add_argument("--lr", type=float, default=0.0001, help="learning rate")
+parser.add_argument("--exp_decay", type=boolean_string, default=False, help="whether exponential decay")
 parser.add_argument("--decay_step", type=int, default=int(1e4), help="learning rate decay step")
 parser.add_argument("--decay_rate", type=float, default=0.9994, help="decay rate")
 parser.add_argument("--batch_size", type=int, default=100, help="batch size")
@@ -27,6 +28,7 @@ parser.add_argument("--max_to_keep", type=int, default=3, help="maximal checkpoi
 parser.add_argument("--model_name", type=str, default="conceptual_primitives", help="model name")
 parser.add_argument("--save_step", type=int, default=10000, help="number of steps to save the model")
 parser.add_argument("--print_step", type=int, default=1000, help="number of steps to print the train information")
+parser.add_argument("--debug_step", type=int, default=10000, help="number of steps tp print debug information")
 
 # set raw dataset path and glove vectors path
 parser.add_argument("--ukwac_path",
@@ -92,7 +94,8 @@ model = ConceptualPrimitives(cfg=config,
 if config.mode == "train":
     if config.resume_train:
         model.restore_last_session()
-    model.train(dataset=config.dataset, save_step=config.save_step, print_step=config.print_step)
+    model.train(dataset=config.dataset, save_step=config.save_step, print_step=config.print_step,
+                debug_step=config.decay_step)
 
 elif config.mode == "cluster":
     # restore model
@@ -115,10 +118,11 @@ elif config.mode == "cluster":
 
 elif config.mode == "infer":
     model.restore_last_session()
-    sentence = "When idle, Dave enjoys eating cake with his sister."
+    left_sentence = "When idle, Dave enjoys"
+    right_sentence = "cake with his sister."
     verb = "eating"
     top_n = 10
-    candidates = model.inference(sentence, verb, top_n=top_n, method="add", show_vec=False)
+    candidates = model.inference(left_sentence, right_sentence, verb, top_n=top_n, method="add", show_vec=False)
     print("Top {} candidates:".format(top_n))
     print(candidates)
 
