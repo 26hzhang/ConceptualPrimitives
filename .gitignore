@@ -105,8 +105,7 @@ venv.bak/
 
 # custom
 .idea/
-ckpt/
-data/
-data_sent/
+ckpt*/
+data*/
 .DS_Store
 *.DS_Store
